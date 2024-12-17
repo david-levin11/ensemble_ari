@@ -1,0 +1,33 @@
+{
+    "download": {
+        "base_url": "https://hdsc.nws.noaa.gov/pub/hdsc/data/ak/",
+        "output_dir": "C:\\Users\\David.Levin\\RFCVer\\Regrid\\ascii_data",
+        "overwrite_existing": false
+    },
+    "ari_settings": {
+        "region": "ak",
+        "recurrence_intervals_years": [2,5,10,25,50,100],
+        "durations_hours": [24]
+    },
+    "logging": {
+        "log_to_file": true,
+        "log_file": "./ari_script.log",
+        "log_level": "INFO"
+    },
+    "ensemble": {
+        "ensemble_dir": "C:\\Users\\David.Levin\\RFCVer\\Regrid\\ensemble_data",
+        "regrid_dir": "C:\\Users\\David.Levin\\RFCVer\\Regrid\\regridded_ari",
+        "base_exceedance_dir": "C:\\Users\\David.Levin\\RFCVer\\Regrid\\ensemble_exceedance_data",
+        "overwrite_existing": false,
+        "name": {
+            "nbm": {
+                "base_datasets": ["base_nbmak.grib2"],
+                "longname": "nbmqmd",
+                "shortname": "nbm",
+                "run_hours": ["00", "06", "12", "18"],
+                "max_hour": 132,
+                "run_dt": "2020-11-29 12:00"
+            }
+        }
+    }
+}
