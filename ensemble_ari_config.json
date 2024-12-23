@@ -1,11 +1,10 @@
 {
     "download": {
-        "base_url": "https://hdsc.nws.noaa.gov/pub/hdsc/data/ak/",
-        "output_dir": "C:\\Users\\David.Levin\\RFCVer\\Regrid\\ascii_data",
+        "base_url": "https://hdsc.nws.noaa.gov/pub/hdsc/data/",
+        "output_dir": "C:\\Users\\David.Levin\\ensemble_ari\\ascii_data",
         "overwrite_existing": false
     },
     "ari_settings": {
-        "region": "ak",
         "recurrence_intervals_years": [2,5,10,25,50,100],
         "durations_hours": [24]
     },
@@ -15,18 +14,47 @@
         "log_level": "INFO"
     },
     "ensemble": {
-        "ensemble_dir": "C:\\Users\\David.Levin\\RFCVer\\Regrid\\ensemble_data",
-        "regrid_dir": "C:\\Users\\David.Levin\\RFCVer\\Regrid\\regridded_ari",
-        "base_exceedance_dir": "C:\\Users\\David.Levin\\RFCVer\\Regrid\\ensemble_exceedance_data",
+        "ensemble_dir": "C:\\Users\\David.Levin\\ensemble_ari\\ensemble_data",
+        "regrid_dir": "C:\\Users\\David.Levin\\ensemble_ari\\regridded_ari",
+        "base_exceedance_dir": "C:\\Users\\David.Levin\\ensemble_ari\\ensemble_exceedance_data",
         "overwrite_existing": false,
         "name": {
             "nbm": {
-                "base_datasets": ["base_nbmak.grib2"],
+                "ari_regions": {
+                    "ak": {
+                        "ari_prefixes": ["ak"],
+                        "base_dataset": "base_nbmak.grib2",
+                        "ensemble_name": "nbmak"
+                    },
+                    "hi": {
+                        "ari_prefixes": ["hi"],
+                        "base_dataset": "base_nbmhi.grib2",
+                        "ensemble_name": "nbmhi",
+                        "projection_info": {
+                            "proj_string": "+proj=merc +a=6371200 +b=6371200 +lat_ts=20 +lon_0=-160 +units=m +no_defs"
+                        },
+                        "geotransform": [-519274.6447822295, 2500, 0, 2915561.4041805766, 0, -2500]
+                    },
+                    "co": {
+                        "ari_prefixes": ["sw", "orb", "mw", "se", "tx", "inw"],
+                        "base_dataset": "base_nbmco.grib2",
+                        "ensemble_name": "nbmco"
+                    }
+                },
+                "base_url": "https://noaa-nbm-grib2-pds.s3.amazonaws.com/",
+                "base_tif_url": "https://noaa-nbm-pds.s3.amazonaws.com/",
+                "base_version": "4.2",
+                "base_runtime": "12",
+                "base_projection": 6,
+                "base_dir": "C:\\Users\\David.Levin\\ensemble_ari\\ensemble_data",
+                "base_search_string": ":TMP:2 m",
                 "longname": "nbmqmd",
                 "shortname": "nbm",
                 "run_hours": ["00", "06", "12", "18"],
+                "percentiles": [1, 5, 10, 25, 50, 75, 90, 95, 99],
+                "full_percentiles": "False",
                 "max_hour": 132,
-                "run_dt": "2020-11-29 12:00"
+                "run_dt": "2024-08-23 12:00"
             }
         }
     }
