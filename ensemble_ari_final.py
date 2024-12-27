@@ -8,6 +8,7 @@ import json
 import zipfile
 import numpy as np
 import xarray as xr
+from functools import reduce
 from datetime import datetime, timedelta, timezone
 from osgeo import gdal, osr
 
@@ -96,6 +97,26 @@ class Ensemble_ARI:
         os.remove(zip_path)
         self.logger.info(f"Deleted: {zip_path}")
 
+    def cleanup_ascii(self, directory, delete_file):
+        """
+        Delete all files in the specified directory that start with the given prefix.
+
+        :param directory: Path to the directory to search for files.
+        :param delete_file: filename to match files against.
+        """
+        try:
+            for filename in os.listdir(directory):
+                prefix = delete_file.split(".")[0]
+                if filename.startswith(prefix):
+                    file_path = os.path.join(directory, filename)
+                    if os.path.isfile(file_path):
+                        os.remove(file_path)
+                        self.logger.info(f"Deleted: {file_path}")
+                    else:
+                        self.logger.info(f"Skipped (not a file): {file_path}")
+        except Exception as e:
+            print(f"An error occurred: {e}")
+
     def regrid_to_base_dataset(self):
         #region = self.config["ari_settings"]["region"]
         ari_regions = self.config["ensemble"]["name"][self.model]["ari_regions"][self.region]["ari_prefixes"]
@@ -123,16 +144,24 @@ class Ensemble_ARI:
             self.logger.info(f"Base grid shape is: {lats.shape} for latitude")
             self.logger.info(f"Base grid shape is: {lats.shape} for longitude")
         # Looping through the ARI "states/regions" for the ensemble to regrid
-        for state in ari_regions:
+        for i, state in enumerate(ari_regions):
             for ri in recurrence_intervals:
                 for duration in durations:
                     ensemble_name = self.config["ensemble"]["name"][self.model]["ari_regions"][self.region]["ensemble_name"]
                     input_filename = f"{state}{ri}yr{duration:02}ha.asc"
+                    if self.region == "co" and self.model == "nbm":
+                        varname = f"{self.region}{ri}yr{duration:02}ha"
+                    else:
+                        varname = f"{state}{ri}yr{duration:02}ha"
                     output_filename = f"{state}{ri}yr{duration:02}ha_regridded_to{ensemble_name}.nc"
                     input_file = os.path.join(ascii_dir, input_filename)
                     output_file = os.path.join(regrid_dir, output_filename)
+                    if self.model == "nbm" and self.region == "co":
+                        checkfile = os.path.join(regrid_dir, f"{varname}_regridded_to{ensemble_name}.nc")
+                    else:
+                        checkfile = output_file
                     # Skip if file exists and overwrite is False
-                    if os.path.exists(output_file) and not overwrite:
+                    if os.path.exists(checkfile) and not overwrite:
                         self.logger.info(f"File already exists, skipping: {output_file}")
                         continue
                     # Logging information for each combination of dataset, recurrence interval, and duration
@@ -196,7 +225,8 @@ class Ensemble_ARI:
                     #Closing datasets
                     resampled_ds = None
                     target_dataset = None
-
+                    # deleting unnecessary ascii files
+                    self.cleanup_ascii(ascii_dir, input_filename)
                     # Load the resampled dataset
                     try:
                         resampled_ds = gdal.Open(output_file)
@@ -223,7 +253,7 @@ class Ensemble_ARI:
                     # Create xarray dataset
                     output_ds = xr.Dataset(
                         {
-                            f"{input_filename.split('.')[0]}": (["y", "x"], data)  # Rename data variable
+                            varname: (["y", "x"], data)  # Rename data variable
                         },
                         coords={
                             "latitude": lats, #using original dataset coordinates
@@ -241,6 +271,9 @@ class Ensemble_ARI:
                         self.logger.info(f"NetCDF saved to {output_file}")
                     except Exception as e:
                         self.logger.error(f"Error saving NetCDF: {output_file}, {e}")
+        # At the end merge all the conus datasets together
+        if self.model == "nbm" and self.region == "co":
+            self.merge_conus_ari()
 
     def calc_nbm_ari_full(self):
         # pulling vars from config
@@ -266,18 +299,18 @@ class Ensemble_ARI:
             stepranges = [f'{int(float(fxx)-float(ri_duration))}-{fxx}' for fxx in steplist]
             # looping through the RI grids
             for ri_length in ri_lengths:
-                print(f"Now working on {ri_length} ARI...")
+                self.logger.info(f"Now working on {ri_length} ARI...")
                 ri_file = f'{self.region}{ri_length}yr{int(ri_duration):02d}ha_regridded_to{ensemble_shortname}{self.region}.nc'
-                print(f"ARI file is: {ri_file}")
+                self.logger.info(f"ARI file is: {ri_file}")
                 # looping through the QMD files in our model directory
                 for trange, tstep in enumerate(steplist):
-                    print(f"Time step is: {tstep}")
+                    self.logger.info(f"Time step is: {tstep}")
 
                     # Step 1 Load QMD file
                     efilename = f'blend.t{datetime.strptime(rundt, "%Y-%m-%d %H:%M").hour}z.qmd.f{str(tstep).zfill(3)}.{self.region}.grib2'
                     efilepath = f'{ensemble_dir}\{ensemble}\{datetime.strptime(rundt,"%Y-%m-%d %H:%M").strftime("%Y%m%d")}'
                     efile = os.path.join(efilepath, efilename)
-                    print(f"Now loading {efilename} from {efilepath}")
+                    self.logger.info(f"Now loading {efilename} from {efilepath}")
                     # Creating list of percentiles (1-99)
                     percentiles = list(range(1,100))
                     # Initializing our cube
@@ -294,8 +327,8 @@ class Ensemble_ARI:
                             ) as ds:
                                 percentile_cube.append(ds.tp)  # Assuming `tp` is the variable
                     except Exception as e:
-                        print(e)
-                        print(f"{efilename} doesn't seem to exist in {efilepath}. Skipping this time step...")
+                        self.logger.error(f"Error occured: {e}")
+                        self.logger.error(f"One possible issue maybe that {efilename} doesn't seem to exist in {efilepath}. Skipping this time step...")
                         continue
 
                     # Step 3 Combine into a single cube
@@ -317,9 +350,9 @@ class Ensemble_ARI:
                             lat =  ri_ds['latitude'].data
                             lon =  ri_ds['longitude'].data
                     except Exception as e:
-                        print(e)
-                        print(f"{ri_file} doesn't seem to exist in {ri_filepath}.  Make sure you have downloaded the ARIs and regridded to this model")
-                        print(f"Skipping {ri_length} ARI...")
+                        self.logger.error(f"Error has occurred {e}")
+                        self.logger.info(f"One possible issue may be that {ri_file} doesn't seem to exist in {ri_filepath}.  Make sure you have downloaded the ARIs and regridded to this model")
+                        self.logger.info(f"Skipping {ri_length} ARI...")
                         continue
                     
                     # Step 6: Save the rank array to NetCDF
@@ -343,11 +376,12 @@ class Ensemble_ARI:
                     )
                     # Save to NetCDF
                     rank_ds.to_netcdf(output_file)
-                    print(f"Rank array saved to {output_file}")
+                    self.logger.info(f"Rank array saved to {output_file}")
     
     def calc_nbm_ari_select(self):
         # pulling vars from config
         ensemble_dir = self.config["ensemble"]["ensemble_dir"]
+        overwrite = self.config["ensemble"]["overwrite_existing"]
         ri_filepath = self.config["ensemble"]["regrid_dir"]
         base_exceedance_dir = self.config["ensemble"]["base_exceedance_dir"]
         ensemble = self.config["ensemble"]["name"][self.model]["longname"]
@@ -370,18 +404,22 @@ class Ensemble_ARI:
             stepranges = [f'{int(float(fxx)-float(ri_duration))}-{fxx}' for fxx in steplist]
             # looping through the RI grids
             for ri_length in ri_lengths:
-                print(f"Now working on {ri_length} ARI...")
+                self.logger.info(f"Now working on {ri_length} ARI...")
                 ri_file = f'{self.region}{ri_length}yr{int(ri_duration):02d}ha_regridded_to{ensemble_shortname}{self.region}.nc'
-                print(f"ARI file is: {ri_file}")
+                self.logger.info(f"ARI file is: {ri_file}")
                 # looping through the QMD files in our model directory
                 for trange, tstep in enumerate(steplist):
-                    print(f"Time step is: {tstep}")
-
+                    self.logger.info(f"Time step is: {tstep}")
+                    output_file_name = f'{self.region}{ri_length}yr{int(ri_duration):02d}ha_{ensemble}_{tstep:03d}.nc'
+                    #checking to make sure the file doesn't already exist
+                    if os.path.exists(os.path.join(exceedance_dir, output_file_name)) and not overwrite:
+                        self.logger.info(f"{output_file_name} already exists in {exceedance_dir}...skipping this time step")
+                        continue
                     # Step 1 Load QMD file
                     efilename = f'blend.t{datetime.strptime(rundt, "%Y-%m-%d %H:%M").hour}z.qmd.f{str(tstep).zfill(3)}.{self.region}.grib2'
                     efilepath = f'{ensemble_dir}\{ensemble}\{datetime.strptime(rundt,"%Y-%m-%d %H:%M").strftime("%Y%m%d")}'
                     efile = os.path.join(efilepath, efilename)
-                    print(f"Now loading {efilename} from {efilepath}")
+                    self.logger.info(f"Now loading {efilename} from {efilepath}")
                     # Initializing our cube
                     percentile_cube = []
 
@@ -396,8 +434,8 @@ class Ensemble_ARI:
                             ) as ds:
                                 percentile_cube.append(ds.tp)  # Assuming `tp` is the variable
                     except Exception as e:
-                        print(e)
-                        print(f"{efilename} doesn't seem to exist in {efilepath}. Skipping this time step...")
+                        self.logger.error(f"Error has occurred {e}")
+                        self.logger.info(f"One possible issue may be that {efilename} doesn't seem to exist in {efilepath}. Skipping this time step...")
                         continue
 
                     # Step 3 Combine into a single cube
@@ -442,15 +480,15 @@ class Ensemble_ARI:
                                 lat =  ri_ds['latitude'].data
                                 lon =  ri_ds['longitude'].data
                     except Exception as e:
-                        print(e)
-                        print(f"{ri_file} doesn't seem to exist in {ri_filepath}.  Make sure you have downloaded the ARIs and regridded to this model")
-                        print(f"Skipping {ri_length} ARI...")
+                        self.logger.error(f"Error has occurred {e}")
+                        self.logger.info(f"One possible issue may be that {ri_file} doesn't seem to exist in {ri_filepath}.  Make sure you have downloaded the ARIs and regridded to this model")
+                        self.logger.info(f"Skipping {ri_length} ARI...")
                         continue
                     
                     # Step 6: Save the rank array to NetCDF
                     os.makedirs(exceedance_dir, exist_ok=True)  # Ensure the output directory exists
                     # Construct the output file name dynamically
-                    output_file = os.path.join(exceedance_dir, f'{self.region}{ri_length}yr{int(ri_duration):02d}ha_{ensemble}_{tstep:03d}.nc')
+                    output_file = os.path.join(exceedance_dir, output_file_name)
                     # Create an xarray Dataset for saving
                     rank_ds = xr.Dataset(
                         {
@@ -468,7 +506,7 @@ class Ensemble_ARI:
                     )
                     # Save to NetCDF
                     rank_ds.to_netcdf(output_file)
-                    print(f"Rank array saved to {output_file}")
+                    self.logger.info(f"Rank array saved to {output_file}")
     
     def calc_ensemble_ari(self):
         if self.model == 'nbm' and self.config["ensemble"]["name"][self.model]["full_percentiles"] == "True":
@@ -478,18 +516,19 @@ class Ensemble_ARI:
             # running appropriate grid calculation script
             self.calc_nbm_ari_select()
         else:
-            print(f"No ARI routine available for {self.model}!  Sorry!")
+            # this should change as more ensemble datasets are added
+            self.logger.info(f"No ARI routine available for {self.model}!  Sorry!")
 
     def download_subset(self, remote_url, local_dir, local_filename, model, search_string):
-        print(f"  > Downloading a subset of {model} gribs to {local_dir}")
+        self.logger.info(f"  > Downloading a subset of {model} gribs to {local_dir}")
         #making sure local dir exists
         os.makedirs(local_dir, exist_ok=True)
         local_file = os.path.join(local_dir, local_filename)
         idx = remote_url+".idx"
         r = requests.get(idx)
         if not r.ok:
-            print('     ❌ SORRY! Status Code:', r.status_code, r.reason)
-            print(f'      ❌ It does not look like the index file exists: {idx}')
+            self.logger.info('SORRY! Status Code:', r.status_code, r.reason)
+            self.logger.info(f'It does not look like the index file exists: {idx}')
             
         lines = r.text.split('\n')
         expr = re.compile(search_string)
@@ -532,23 +571,11 @@ class Ensemble_ARI:
             os.system(curl)
 
         if os.path.exists(local_file):
-            print(f'      ✅ Success! Searched for [{search_string}] and got [{len(byte_ranges)}] GRIB fields and saved as {local_file}')
+            self.logger.info(f'Success! Searched for [{search_string}] and got [{len(byte_ranges)}] GRIB fields and saved as {local_file}')
             return local_file
         else:
-            print(print(f'      ❌ Unsuccessful! Searched for [{search_string}] and did not find anything!'))
+            self.logger.error(f'Unsuccessful! Searched for [{search_string}] and did not find anything!'))
     
-    def download_base_tif(self, remote_url, local_filename, local_dir):
-        try:
-            response = requests.get(remote_url, stream=True)
-            response.raise_for_status()
-            with open(os.path.join(local_dir, local_filename), 'wb') as file:
-                for chunk in response.iter_content(chunk_size=8192):
-                    file.write(chunk)
-            print(f"{local_filename} successfully downloaded and saved to {local_dir}")
-        except requests.exceptions.RequestException as e:
-            print(f"An error occured while downloading {remote_url} to {local_filename}: {e}")
-
-
     def get_base_dataset(self):
         runtime = self.config["ensemble"]["name"][self.model]["base_runtime"]
         runprojection = self.config["ensemble"]["name"][self.model]["base_projection"]
@@ -558,27 +585,59 @@ class Ensemble_ARI:
         search_string = self.config["ensemble"]["name"][self.model]["base_search_string"] 
         attempts = 1   
         while attempts <= 10:
-            print(f"Attempting to download {self.model} base file: try number {attempts}")
+            self.logger.info(f"Attempting to download {self.model} base file: try number {attempts}")
             utc_yesterday = datetime.now(timezone.utc) - timedelta(days=attempts)
-
             rundate = utc_yesterday.strftime('%Y%m%d')
             # nbm has different "domains" for ak and conus
             #if self.model == "nbm" and self.region != "hi":
             if self.model == "nbm":
                 remote_url = f"{base_url}blend.{rundate}/{runtime}/core/blend.t{runtime}z.core.f{runprojection_string}.{self.region}.grib2"
                 local_filename = self.config["ensemble"]["name"][self.model]["ari_regions"][self.region]["base_dataset"]
-                print(remote_url)
+                self.logger.info(f"Attempting to get data at {remote_url}")
                 try:
                     self.download_subset(remote_url, ensemble_dir, local_filename, self.model, search_string)
                     break
                 except requests.HTTPError as http_err:
-                    print(f"HTTP error occurred: {http_err}")
-                    print(f"File not found for {remote_url}. Trying the previous day...")
+                    self.logger.error(f"HTTP error occurred: {http_err}")
+                    self.logger.error(f"File not found for {remote_url}. Trying the previous day...")
             else:
-                print(f"No url structure has been set up yet for {self.model}.  Check get_base_dataset() and add functionality!")
+                self.logger.error(f"No url structure has been set up yet for {self.model}.  Check get_base_dataset() and add functionality!")
                 sys.exit()
             attempts += 1
-        
+    
+    def merge_conus_ari(self):
+        region_config=self.config["ensemble"]["name"][self.model]["ari_regions"][self.region]
+        ari_dir = self.config["ensemble"]["regrid_dir"]
+        ari_lengths = self.config["ari_settings"]["recurrence_intervals_years"]
+        ari_durations = self.config["ari_settings"]["durations_hours"]
+        ensemble_name = region_config["ensemble_name"]
+        # looping through the ari lengths and durations
+        for year in ari_lengths:
+            for duration in ari_durations:
+                #checking to see if we already have conus files
+                merged_filename = f"{self.region}{year}yr{duration}ha_regridded_to{self.model}{self.region}.nc"
+                if os.path.exists(os.path.join(ari_dir, merged_filename)):
+                    self.logger.info(f"Dataset {os.path.join(ari_dir, merged_filename)} exists. Skipping merge step")
+                    continue
+                # looping through the conus ari regions
+                datasets = []
+                for area in region_config["ari_prefixes"]:
+                    # getting the appropriate datasets and adding them to the list
+                    ari_filename = f"{area}{year}yr{duration}ha_regridded_to{ensemble_name}.nc"
+                    self.logger.info(f"Attempting to open {ari_filename}")
+                    with xr.open_dataset(os.path.join(ari_dir, ari_filename)) as ds:
+                        # filling -999 data with NaN for easier stitching
+                        self.logger.info(f"Appending dataset for {area}")
+                        datasets.append(ds.where(ds[f"{self.region}{year}yr{duration}ha"]>=0))
+                # now merging all the conus datasets into one
+                
+                # filling the first dataset with the second and so forth until we have a stitched grid...
+                self.logger.info(f"Stitching together CONUS datasets from {region_config["ari_prefixes"]}")
+                conus_ds = reduce(lambda left, right: left.fillna(right), datasets)
+                #conus_ds = xr.merge(datasets, compat="broadcast_equals")
+                conus_ds.to_netcdf(os.path.join(ari_dir, merged_filename))
+                self.logger.info(f"Done merging CONUS regridded ARI files for {year} year ARI and {duration} hr duration")
+              
 
 # Main script
 if __name__ == "__main__":
@@ -586,7 +645,7 @@ if __name__ == "__main__":
     config_path = r"C:\Users\David.Levin\ensemble_ari\ensemble_ari_config.json"
 
     # Initialize and run the script
-    ari_script = Ensemble_ARI("nbm", "ak", config_path)
+    ari_script = Ensemble_ARI("nbm", "co", config_path)
     ari_script.download_ari_files()
     ari_script.regrid_to_base_dataset()
     ari_script.calc_ensemble_ari()

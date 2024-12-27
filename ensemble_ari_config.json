@@ -36,7 +36,7 @@
                         "geotransform": [-519274.6447822295, 2500, 0, 2915561.4041805766, 0, -2500]
                     },
                     "co": {
-                        "ari_prefixes": ["sw", "orb", "mw", "se", "tx", "inw"],
+                        "ari_prefixes": ["sw", "orb", "mw", "se", "ne", "tx", "inw"],
                         "base_dataset": "base_nbmco.grib2",
                         "ensemble_name": "nbmco"
                     }
@@ -54,7 +54,7 @@
                 "percentiles": [1, 5, 10, 25, 50, 75, 90, 95, 99],
                 "full_percentiles": "False",
                 "max_hour": 132,
-                "run_dt": "2024-08-23 12:00"
+                "run_dt": "2024-09-25 12:00"
             }
         }
     }
