@@ -24,37 +24,60 @@
                     "ak": {
                         "ari_prefixes": ["ak"],
                         "base_dataset": "base_nbmak.grib2",
-                        "ensemble_name": "nbmak"
+                        "ensemble_name": "nbmak",
+                        "projection_info": {
+                            "proj_string": "PROJCS[\"unnamed\",GEOGCS[\"Coordinate System imported from GRIB file\",DATUM[\"unnamed\",SPHEROID[\"Sphere\",6371200,0]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433,AUTHORITY[\"EPSG\",\"9122\"]]],PROJECTION[\"Polar_Stereographic\"],PARAMETER[\"latitude_of_origin\",60],PARAMETER[\"central_meridian\",210],PARAMETER[\"false_easting\",0],PARAMETER[\"false_northing\",0],UNIT[\"Metre\",1],AXIS[\"Easting\",SOUTH],AXIS[\"Northing\",SOUTH]]"
+                        },
+                        "geotransform": [-2619384.0459885043, 2976.56, 0.0, -1523959.1167387813, 0.0, -2976.56],
+                        "xsize": 1649,
+                        "ysize": 1105
                     },
                     "hi": {
                         "ari_prefixes": ["hi"],
                         "base_dataset": "base_nbmhi.grib2",
                         "ensemble_name": "nbmhi",
                         "projection_info": {
-                            "proj_string": "+proj=merc +a=6371200 +b=6371200 +lat_ts=20 +lon_0=-160 +units=m +no_defs"
+                            "proj_string": "PROJCS[\"unknown\", GEOGCS[\"unknown\", DATUM[\"unknown\", SPHEROID[\"unknown\",6371200,0]], PRIMEM[\"Greenwich\",0, AUTHORITY[\"EPSG\",\"8901\"]], UNIT[\"degree\",0.0174532925199433, AUTHORITY[\"EPSG\",\"9122\"]]], PROJECTION[\"Mercator_2SP\"], PARAMETER[\"standard_parallel_1\",20], PARAMETER[\"central_meridian\",-160], PARAMETER[\"false_easting\",0], PARAMETER[\"false_northing\",0], UNIT[\"metre\",1, AUTHORITY[\"EPSG\",\"9001\"]], AXIS[\"Easting\",EAST], AXIS[\"Northing\",NORTH]]"
                         },
-                        "geotransform": [-519274.6447822295, 2500, 0, 2915561.4041805766, 0, -2500]
+                        "geotransform": [-519274.6447822295, 2500, 0.0, 2915553.459142, 0.0, -2500],
+                        "xsize": 625,
+                        "ysize": 561
                     },
                     "co": {
                         "ari_prefixes": ["sw", "orb", "mw", "se", "ne", "tx", "inw"],
                         "base_dataset": "base_nbmco.grib2",
-                        "ensemble_name": "nbmco"
+                        "ensemble_name": "nbmco",
+                        "projection_info": {
+                            "proj_string": "PROJCS[\"unnamed\",GEOGCS[\"Coordinate System imported from GRIB file\",DATUM[\"unnamed\",SPHEROID[\"Sphere\",6371200,0]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433,AUTHORITY[\"EPSG\",\"9122\"]]],PROJECTION[\"Lambert_Conformal_Conic_2SP\"],PARAMETER[\"latitude_of_origin\",25],PARAMETER[\"central_meridian\",-95],PARAMETER[\"standard_parallel_1\",25],PARAMETER[\"standard_parallel_2\",25],PARAMETER[\"false_easting\",0],PARAMETER[\"false_northing\",0],UNIT[\"Metre\",1],AXIS[\"Easting\",EAST],AXIS[\"Northing\",NORTH]]"
+                        },
+                        "geotransform": [-3271151.605837168, 2539.703, 0.0, 3789572.2545354343, 0.0, -2539.703],
+                        "xsize": 2345,
+                        "ysize": 1597  
                     }
                 },
-                "base_url": "https://noaa-nbm-grib2-pds.s3.amazonaws.com/",
-                "base_tif_url": "https://noaa-nbm-pds.s3.amazonaws.com/",
-                "base_version": "4.2",
-                "base_runtime": "12",
-                "base_projection": 6,
-                "base_dir": "C:\\Users\\David.Levin\\ensemble_ari\\ensemble_data",
-                "base_search_string": ":TMP:2 m",
+                "valid_regions": ["co", "hi", "ak"],
                 "longname": "nbmqmd",
                 "shortname": "nbm",
-                "run_hours": ["00", "06", "12", "18"],
+                "percentiles": [1, 5, 10, 25, 50, 75, 90, 95, 99]
+            },
+            "eps":{
+                "ari_regions": {
+                    "gl": {
+                        "ari_prefixes": ["sw", "orb", "mw", "se", "ne", "tx", "inw", "ak", "hi"],
+                        "base_dataset": "base_eps.grib2",
+                        "ensemble_name": "eps",
+                        "projection_info": {
+                            "proj_string":"GEOGCS[\"Coordinate System imported from GRIB file\",DATUM[\"unnamed\",SPHEROID[\"Sphere\",6371229,0]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433,AUTHORITY[\"EPSG\",\"9122\"]],AXIS[\"Latitude\",NORTH],AXIS[\"Longitude\",EAST]]"
+                        },
+                        "geotransform": [-180, 0.25, 0.0, 90, 0.0, -0.25],
+                        "xsize": 1440,
+                        "ysize": 721
+                    }
+                },
                 "percentiles": [1, 5, 10, 25, 50, 75, 90, 95, 99],
-                "full_percentiles": "False",
-                "max_hour": 132,
-                "run_dt": "2024-09-25 12:00"
+                "longname": "eps",
+                "shortname": "eps",
+                "valid_regions": ["gl"]
             }
         }
     }
