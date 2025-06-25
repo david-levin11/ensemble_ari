@@ -6,7 +6,7 @@
     },
     "ari_settings": {
         "recurrence_intervals_years": [2,5,10,25,50,100],
-        "durations_hours": [24]
+        "durations_hours": [6]
     },
     "logging": {
         "log_to_file": true,
@@ -77,6 +77,25 @@
                 "percentiles": [1, 5, 10, 25, 50, 75, 90, 95, 99],
                 "longname": "eps",
                 "shortname": "eps",
+                "valid_regions": ["gl"]
+            },
+            "gefs":{
+                "ari_regions": {
+                    "gl":{
+                        "ari_prefixes": ["sw", "orb", "mw", "se", "ne", "tx", "inw", "ak", "hi"],
+                        "base_dataset": "base_gefs.grib2",
+                        "ensemble_name": "gefs",
+                        "projection_info": {
+                            "proj_string":"GEOGCS[\"Coordinate System imported from GRIB file\",DATUM[\"unnamed\",SPHEROID[\"Sphere\",6371229,0]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433,AUTHORITY[\"EPSG\",\"9122\"]],AXIS[\"Latitude\",NORTH],AXIS[\"Longitude\",EAST]]"
+                        },
+                        "geotransform": [-180, 0.5, 0.0, 90, 0.0, -0.5],
+                        "xsize": 720,
+                        "ysize": 361
+                    }
+                },
+                "percentiles": [1, 5, 10, 25, 50, 75, 90, 95, 99],
+                "longname": "gefs",
+                "shortname": "gefs",
                 "valid_regions": ["gl"]
             }
         }

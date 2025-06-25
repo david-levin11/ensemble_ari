@@ -38,8 +38,12 @@ class Ensemble_ARI:
         self.model = model
         # what region (global or subset)
         self.region = region
+        # checks for model config
+        try:
+            model_config = self.config["ensemble"]["name"][self.model]
+        except KeyError:
+            self.logger.error(f"{self.model} does not have a valid config in {self.config}")
         # checks for wrong regions
-        model_config = self.config["ensemble"]["name"][self.model]
         if self.region not in model_config["valid_regions"]:
             self.logger.error(f"{self.region} is not a valid domain for {self.model}.")
             self.logger.info(f"Valid regions for {self.model} are: {model_config['valid_regions']}")
@@ -221,6 +225,15 @@ class Ensemble_ARI:
                             "latitude": lats, #using original dataset coordinates
                             "longitude": lons,
                         }
+        elif self.model == "gefs":
+            # creating our global grid from the geotransform
+            grid_global = self.create_global_lat_lon_grid(region_config["geotransform"], region_config["ysize"], region_config["xsize"])
+            lats = grid_global[0]
+            lons = grid_global[1]
+            coordinates={
+                            "latitude": lats, #using original dataset coordinates
+                            "longitude": lons,
+                        }
         else:
             self.logger.error(f"Cannot find grid specs for {self.model}. Check your config file for projection, grid spacing, and transformations")
             sys.exit()
@@ -234,6 +247,8 @@ class Ensemble_ARI:
                         varname = f"{self.region}{ri}yr{duration:02}ha"
                     elif self.model == "eps":
                         varname = f"{self.region}{ri}yr{duration:02}ha"
+                    elif self.model == "gefs":
+                        varname = f"{self.region}{ri}yr{duration:02}ha"
                     else:
                         varname = f"{state}{ri}yr{duration:02}ha"
                     output_filename = f"{state}{ri}yr{duration:02}ha_regridded_to{ensemble_name}.nc"
@@ -243,6 +258,8 @@ class Ensemble_ARI:
                         checkfile = os.path.join(regrid_dir, f"{varname}_regridded_to{ensemble_name}.nc")
                     elif self.model == "eps":
                         checkfile = os.path.join(regrid_dir, f"{varname}_regridded_to{ensemble_name}.nc")
+                    elif self.model == "gefs":
+                        checkfile = os.path.join(regrid_dir, f"{varname}_regridded_to{ensemble_name}.nc")
                     else:
                         checkfile = output_file
                     # Skip if file exists and overwrite is False
@@ -251,24 +268,14 @@ class Ensemble_ARI:
                         continue
                     # Logging information for each combination of dataset, recurrence interval, and duration
                     self.logger.info(f"Regridding for Recurrence Interval: {ri} years, Duration: {duration:02} hours for region: {state}")
-                    # have to read in the nbm hawaii projection info from config
-                    if self.model == "nbm":
-                        srs = osr.SpatialReference()
-                        srs.ImportFromProj4(region_config["projection_info"]["proj_string"])
-                        grib_projection = srs.ExportToWkt()
-                        grib_geotransform = region_config["geotransform"]
-                        grib_xsize = region_config["xsize"]
-                        grib_ysize = region_config["ysize"]
-                    elif self.model == "eps":
-                        srs = osr.SpatialReference()
-                        srs.ImportFromWkt(region_config["projection_info"]["proj_string"])
-                        grib_projection = srs.ExportToWkt()
-                        grib_geotransform = region_config["geotransform"]
-                        grib_xsize = region_config["xsize"]
-                        grib_ysize = region_config["ysize"]
-                    else:
-                        self.logger.error(f"Regridding is only working for NBM and EPS. Sorry!")
-                        sys.exit()
+                    # reading in projection info from config
+                    srs = osr.SpatialReference()
+                    srs.ImportFromWkt(region_config["projection_info"]["proj_string"])
+                    grib_projection = srs.ExportToWkt()
+                    grib_geotransform = region_config["geotransform"]
+                    grib_xsize = region_config["xsize"]
+                    grib_ysize = region_config["ysize"]
+                    
                     self.logger.info(f"Base grid projection: {grib_projection}")
                     self.logger.info(f"Base grid geotransform: {grib_geotransform}")
                     self.logger.info(f"Base grid size: {grib_xsize} x {grib_ysize}")
@@ -351,6 +358,8 @@ class Ensemble_ARI:
         if self.model == "nbm" and self.region == "co":
             self.merge_ari()
         if self.model == "eps":
+            self.merge_ari()
+        if self.model == "gefs":
             self.merge_ari()
 
     def calc_ari_from_nbm_grib(self, nbmfilepath):
@@ -622,6 +631,116 @@ class Ensemble_ARI:
             rank_ds.to_netcdf(output_file)
             self.logger.info(f"Rank array saved to {output_file}")
 
+    def calc_ari_from_gefs(self, gefsfilepath, timestep, filetype="nc", ri_duration="24"):
+        
+        if self.model != "gefs":
+            self.logger.error(f"This function only works with GEFS files, not {self.model}.")
+            sys.exit()
+        if filetype not in ["nc", "grib", "grib2"]:
+            self.logger.error(f"Unrecognized file type {filetype}.  Use either 'nc', 'grib', or 'grib2'")
+            sys.exit()                   
+        # pulling vars from config
+        ri_filepath = self.config["ensemble"]["regrid_dir"]
+        base_exceedance_dir = self.config["ensemble"]["base_exceedance_dir"]
+        ensemble = self.config["ensemble"]["name"][self.model]["longname"]
+        ensemble_shortname = self.config["ensemble"]["name"][self.model]["shortname"]
+        #region = self.config["ari_settings"]["region"]
+        ri_lengths = self.config["ari_settings"]["recurrence_intervals_years"]
+        percentiles = [p/100.0 for p in self.config["ensemble"]["name"][self.model]["percentiles"]]
+        # working with the vars to create additional dynamic ones
+        exceedance_dir = os.path.join(os.path.join(base_exceedance_dir, ensemble), self.region)
+        # looping through the various ARI durations and computing percent exceedance grids
+        # Step 1 Load EPS file and extract time information
+        self.logger.info(f"Now loading {gefsfilepath}")
+        #time_info = self.extract_forecast_details(gefsfilepath, int(ri_duration))
+        step_string = f"F{int(timestep):03}"
+        # Step 2 Create the appropriate accumulation period by opening valid and previous time steps
+        try:
+            # opening the file
+            if filetype == "nc":
+                with xr.open_dataset(gefsfilepath) as ds:
+                    #extract the precipitation
+                    tp_accum = ds.tp 
+            if filetype == "grib" or filetype == "grib2":
+                with xr.open_dataset(gefsfilepath, engine="cfgrib", filter_by_keys = {"typeOfLevel": "surface"}) as ds:
+                    #extract the precipitation
+                    tp_accum = ds.tp
+
+        except Exception as e:
+            self.logger.error(f"Error has occurred {e}")
+            self.logger.info(f"One possible issue may be that {gefsfilepath} doesn't seem to exist. Skipping this time step...")
+        # Step 3 calculate the accumulated precip and create percentiles
+        # calculating the percentiles
+        percentile_cube = tp_accum.quantile(q=percentiles, dim="number")
+
+        for ri_length in ri_lengths:
+            self.logger.info(f"Now working on {ri_length} ARI...")
+            ri_file = f'{self.region}{ri_length}yr{int(ri_duration):02d}ha_regridded_to{ensemble_shortname}.nc'
+            self.logger.info(f"ARI file is: {ri_file}")
+            output_filename = f"{self.region}{ri_length}yr{int(ri_duration):02d}ha_{ensemble}_{step_string}.nc"
+            # Step 4 Load regridded ARI data at the same duration as the step Range
+            try:
+                with xr.open_dataset(os.path.join(ri_filepath, ri_file)) as ri_ds:
+                    # replacing -9 with nan
+                    ri_ds = ri_ds.where(ri_ds != -9, other=np.nan)
+                    # ARI data is in 1000s of inches per HDSC metadata
+                    ri_ds = ri_ds/1000
+                    # pulling out the RI values
+                    ri_da = ri_ds[f'{self.region}{ri_length}yr{int(ri_duration):02d}ha'].values
+                    # percentiles 
+                    # Back to whole numbers for the percentiles for the interp
+                    corrected_percentiles = [p*100 for p in percentiles]
+                    selected_percentiles = np.array(corrected_percentiles)
+                    # pulling out our percentile values
+                    percentile_cube_data = percentile_cube.values
+                    # Reshape for vectorized interpolation
+                    reshaped_cube = np.moveaxis(percentile_cube_data, 0, -1)  # Shape: (y, x, 7) for easier indexing
+                    # Flatten the spatial dimensions for interpolation
+                    flat_random_precip = ri_da.flatten()
+                    flat_cube = reshaped_cube.reshape(-1, reshaped_cube.shape[-1])
+                    # Perform vectorized interpolation for each (y, x) point
+                    flat_rank_array = np.array(
+                        [
+                            np.interp(value, flat_cube[i], selected_percentiles, left=0, right=100)
+                            for i, value in enumerate(flat_random_precip)
+                        ]
+                    )
+                    # Reshape back to the original 2D shape
+                    rank_array = flat_rank_array.reshape(ri_da.shape)
+                    # need the exceedance percentage not the rank
+                    rank_array = 100 - rank_array
+                    
+                    lat =  ri_ds['latitude'].data
+                    lon =  ri_ds['longitude'].data
+            except Exception as e:
+                self.logger.error(f"Error has occurred {e}")
+                self.logger.info(f"One possible issue may be that {ri_file} doesn't seem to exist in {ri_filepath}.  Make sure you have downloaded the ARIs and regridded to this model")
+                self.logger.info(f"Skipping {ri_length} ARI...")
+                continue
+                
+            # Step 6: Save the rank array to NetCDF
+            os.makedirs(exceedance_dir, exist_ok=True)  # Ensure the output directory exists
+            # Construct the output file name dynamically
+            output_file = os.path.join(exceedance_dir, output_filename)
+            # Create an xarray Dataset for saving
+            rank_ds = xr.Dataset(
+                {
+                    "exceedance_perc": (["y", "x"], rank_array)  # Use the dimensions of the rank_array
+                },
+                coords={
+                                "latitude": (["y"], lat),
+                                "longitude": (["x"], lon),
+                            },
+                attrs={
+                    "title": f"Rank Percentile for {ri_length}-yr ARI at step {step_string}",
+                    "description": f"Rank computed from ARI and {ensemble} precipitation percentiles",
+                    "units": "rank (percentile index)"
+                }
+            )
+            # Save to NetCDF
+            rank_ds.to_netcdf(output_file)
+            self.logger.info(f"Rank array saved to {output_file}")
+
     def extract_forecast_details(self, file_path, hours_back):
         """
         Extract forecast details from a GRIB file.
@@ -634,33 +753,65 @@ class Ensemble_ARI:
             keys = {}
         elif self.model == "eps":
             keys = {'dataType': 'cf'}
-        with xr.open_dataset(file_path, engine="cfgrib", filter_by_keys=keys) as ds:
-            # Convert "time" to datetime objects
-            time_value = pd.to_datetime(ds["time"].values)
+        elif self.model == "gefs":
+            keys = {}
+        try:
+            with xr.open_dataset(file_path, engine="cfgrib", filter_by_keys=keys) as ds:
+                # Convert "time" to datetime objects
+                time_value = pd.to_datetime(ds["time"].values)
 
-            # Convert "step" (nanoseconds) to hours
-            if "step" in ds.variables:
-                step_values = ds["step"].values
-                step_hours = (step_values / np.timedelta64(1, 'h')).astype(int)
-                step_string = f"F{step_hours:03}"
+                # Convert "step" (nanoseconds) to hours
+                if "step" in ds.variables:
+                    step_values = ds["step"].values
+                    step_hours = (step_values / np.timedelta64(1, 'h')).astype(int)
+                    step_string = f"F{step_hours:03}"
 
-                # Create forecast valid times by adding step to time
-                valid_time = time_value + pd.Timedelta(hours=step_hours)
+                    # Create forecast valid times by adding step to time
+                    valid_time = time_value + pd.Timedelta(hours=step_hours)
 
-                # Calculate the step range dynamically
-                min_step = max(0, step_hours - hours_back)
-                max_step = step_hours
-                step_range = f"{min_step}-{max_step}"
+                    # Calculate the step range dynamically
+                    min_step = max(0, step_hours - hours_back)
+                    max_step = step_hours
+                    step_range = f"{min_step}-{max_step}"
 
-                return {
-                    "time_value": time_value,
-                    "step_hours": step_hours,
-                    "step_string": step_string,
-                    "valid_time": valid_time,
-                    "step_range": step_range
-                }
-            else:
-                raise ValueError("The 'step' variable is not present in the GRIB file.")
+                    return {
+                        "time_value": time_value,
+                        "step_hours": step_hours,
+                        "step_string": step_string,
+                        "valid_time": valid_time,
+                        "step_range": step_range
+                    }
+                else:
+                    raise ValueError("The 'step' variable is not present in the GRIB file.")
+        except Exception as e:
+            print(e)
+            with xr.open_dataset(file_path, engine="netcdf4") as ds:
+                # Convert "time" to datetime objects
+                time_value = pd.to_datetime(ds["time"].values)
+
+                # Convert "step" (nanoseconds) to hours
+                if "step" in ds.variables:
+                    step_values = ds["step"].values
+                    step_hours = (step_values / np.timedelta64(1, 'h')).astype(int)
+                    step_string = f"F{step_hours:03}"
+
+                    # Create forecast valid times by adding step to time
+                    valid_time = time_value + pd.Timedelta(hours=step_hours)
+
+                    # Calculate the step range dynamically
+                    min_step = max(0, step_hours - hours_back)
+                    max_step = step_hours
+                    step_range = f"{min_step}-{max_step}"
+
+                    return {
+                        "time_value": time_value,
+                        "step_hours": step_hours,
+                        "step_string": step_string,
+                        "valid_time": valid_time,
+                        "step_range": step_range
+                    }
+                else:
+                    raise ValueError("The 'step' variable is not present in the netcdf file.")
 
     def create_global_lat_lon_grid(self, geotransform, n_lat, n_lon):
         """
@@ -820,19 +971,23 @@ if __name__ == "__main__":
     # Specify the path to the JSON configuration file
     config_path = r"C:\Users\David.Levin\ensemble_ari\ensemble_ari_config.json"
     datapath = r'C:\Users\David.Levin\ensemble_ari\ensemble_data\ifs\20240925'
+    gefspath = r'C:\Users\David.Levin\ensemble_ari\ensemble_data\gefs\20201129'
     nbmakpath = r'C:\Users\David.Levin\ensemble_ari\ensemble_data\nbmqmd\20201129'
     nbmcopath = r'C:\Users\David.Levin\ensemble_ari\ensemble_data\nbmqmd\20240925'
     nbmhipath = r'C:\Users\David.Levin\ensemble_ari\ensemble_data\nbmqmd\20240823'
     nbmakdatafile = 'blend.t12z.qmd.f060.ak.grib2'
     nbmcodatafile = 'blend.t12z.qmd.f048.co.grib2'
     nbmhidatafile = 'blend.t12z.qmd.f060.hi.grib2'
+    gefsdatafile = '20201129_t00z_60h_gefs.nc'
     datafile_f = '20240925120000-48h-enfo-ef.grib2'
     datafile_b = '20240925120000-24h-enfo-ef.grib2'
     ensfile_f = os.path.join(datapath, datafile_f)
     ensfile_b = os.path.join(datapath, datafile_b)
+    gefsfile = os.path.join(gefspath, gefsdatafile)
     # Initialize and run the script
-    #ari_script = Ensemble_ARI("eps", "gl")
-    #ari_script.download_ari_files()
+    ari_script = Ensemble_ARI("eps", "gl")
+    ari_script.download_ari_files()
     #ari_script.regrid_to_base_dataset()
     #ari_script.calc_ari_from_eps_grib(ensfile_f, ensfile_b, ri_duration="24")
     ##ari_script.calc_ari_from_nbm_grib(os.path.join(nbmcopath, nbmcodatafile))
+    #ari_script.calc_ari_from_gefs(gefsfile, "72")
