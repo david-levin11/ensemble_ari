@@ -1,4 +1,5 @@
 import os
+import glob
 import requests
 import zipfile
 import xarray as xr
@@ -8,12 +9,29 @@ from osgeo import gdal
 ncdir = r"C:\Users\David.Levin\ensemble_ari\nc_data"
 ascii_dir = r"C:\Users\David.Levin\ensemble_ari\ascii_data"
 ri_areas = ["sw", "orb", "mw", "se", "ne", "tx", "inw", "ak", "hi"]
-ri_lengths = ["2","5","10","25","50","100"]
-ri_duration = "24"
+ri_lengths = ["2","5","10","25","50","100", "200", "500", "1000"]
+ri_duration = "72"
 hdsc_base_url = "https://hdsc.nws.noaa.gov/pub/hdsc/data/"
 ari_regions = ["sw", "orb", "mw", "se", "ne", "tx", "inw", "ak", "hi"]
 recurrence_intervals = [int(x) for x in ri_lengths]
 durations = [int(ri_duration)]
+
+def clean_up_dirs(dir, ext=None):
+    # delete everything if no extention specified
+    if ext==None:
+        for fl in os.listdir(dir):
+            print(f"Removing {fl} from {dir}")
+            os.remove(os.path.join(dir, fl))
+    else:
+        files_to_delete = glob.glob(os.path.join(dir, f"*.{ext}"))
+        # delete each file
+        for fl in files_to_delete:
+            try:
+                os.remove(fl)
+                print(f"Deleted: {fl}")
+            except Exception as e:
+                print(f"Error deleting {fl}: {e}")
+    return
 
 def unzip_and_cleanup(zip_path, extract_to):
         """
@@ -71,8 +89,12 @@ def download_ari_files(hdsc_base_url, output_dir, ari_regions, recurrence_interv
             base_url = f"{hdsc_base_url}{state}/"
             for ri in recurrence_intervals:
                 for duration in durations:
-                    filename = f"{state}{ri}yr{duration:02}ha.zip"
-                    check_file = f"{state}{ri}yr{duration:02}ha.asc"
+                    if duration == 72:
+                        filename = f"{state}{ri}yr03da.zip"
+                        check_file = f"{state}{ri}yr03da.asc"
+                    else:
+                        filename = f"{state}{ri}yr{duration:02}ha.zip"
+                        check_file = f"{state}{ri}yr{duration:02}ha.asc"
                     file_url = f"{base_url}{filename}"
                     output_path = os.path.join(output_dir, filename)
                     check_file_path = os.path.join(output_dir, check_file)
@@ -99,110 +121,121 @@ def download_ari_files(hdsc_base_url, output_dir, ari_regions, recurrence_interv
                         unzip_and_cleanup(output_path, output_dir)
                     except Exception as e:
                         print(f"Error unzipping {output_path}: {e}")
-# # checking to see if our ascii files exists and if not, grabbing them from the HDSC server
-print(f"Now processing grids for {ri_duration}hr ARI...")
-download_ari_files(hdsc_base_url, ascii_dir, ari_regions, recurrence_intervals, durations)
-# creating our netcdf directory
-if not os.path.exists(ncdir):
-    os.makedirs(ncdir, exist_ok=False)
 
-# processing ASCII files
-for length in ri_lengths:
-    # List of input NetCDF files
-    input_files = [
-        os.path.join(ascii_dir, f"{area}{length}yr{ri_duration}ha.asc") 
-        for area in ri_areas
-    ]
-    
-    # Check if all input files exist
-    missing_files = [f for f in input_files if not os.path.exists(f)]
-    if missing_files:
-        raise FileNotFoundError(f"Missing input files: {missing_files}")
-    
-    mosaic_file = f"gl{length}yr{ri_duration}ha.tif"
-    output_mosaic = os.path.join(ncdir, mosaic_file)
-    print(f"Merging files into: {output_mosaic}")
 
-    # Use gdal.WarpOptions to specify additional parameters
-    warp_options = gdal.WarpOptions(
-        dstSRS="EPSG:4269",             # Reproject to EPSG:4269
-    )
+if __name__ == "__main__":
+    # # checking to see if our ascii files exists and if not, grabbing them from the HDSC server
+    print(f"Now processing grids for {ri_duration}hr ARI...")
+    download_ari_files(hdsc_base_url, ascii_dir, ari_regions, recurrence_intervals, durations)
+    # creating our netcdf directory
+    if not os.path.exists(ncdir):
+        os.makedirs(ncdir, exist_ok=False)
 
-    # Use gdal.Warp to merge the files
-    warp = gdal.Warp(
-        destNameOrDestDS=output_mosaic,  # Output file path
-        srcDSOrSrcDSTab=input_files,       # List of input files
-        options=warp_options               # Warp options
-    )
-
-    if warp is None:
-        raise RuntimeError(f"Failed to merge files for {length}-year duration")
-
-    print(f"Successfully merged files into {output_mosaic}")
-# now resampling to something more managable
-for ri_length in ri_lengths:
-    mosaic_file = os.path.join(ncdir, f"gl{ri_length}yr{ri_duration}ha.tif")
-    output_raster = os.path.join(ncdir, f"gl{ri_length}yr{ri_duration}ha_resampled.tif")
-    # Define the target resolution in degrees (for ~2.5 km resolution)
-    target_resolution = 0.0225  # Approximate 2.5 km resolution in degrees
-
-    # Define the spatial reference (EPSG:4326 for Lat/Lon)
-    target_srs = 'EPSG:4326'
-
-    # Perform the resampling using GDAL Warp 
-    gdal.Warp(output_raster, mosaic_file,
-            format='GTiff',  # Output format
-            xRes=target_resolution,  # Resolution in X (Longitude)
-            yRes=target_resolution,  # Resolution in Y (Latitude)
-            dstSRS=target_srs,  # Target Spatial Reference
-            #outputBounds=output_bounds_west,  # Define the bounding box
-            targetAlignedPixels=True,  # Ensure pixel alignment
-            warpOptions=['DATELINEOFFSET=180'])  # Handle dateline properly
-    
-    print("Resampling and reprojection complete!")
-
+    # processing ASCII files
+    for length in ri_lengths:
+        # List of input NetCDF files
+        if ri_duration == "72":
+            input_files = [
+                os.path.join(ascii_dir, f"{area}{length}yr03da.asc") 
+                for area in ri_areas
+            ]
+        else:
+            input_files = [
+                os.path.join(ascii_dir, f"{area}{length}yr{ri_duration}ha.asc") 
+                for area in ri_areas
+            ]
         
-# now converting to netcdf for use with python applications like xesmf
-for length in ri_lengths:
-    # Input and output file paths
-    varname = f"gl{ri_duration}ha"
-    input_asc_file = f"gl{length}yr{ri_duration}ha_resampled.tif"  # Replace with the path to your .asc file
-    output_nc_file = f"gl{length}yr{ri_duration}ha.nc" # Replace with the desired output NetCDF file name
-    
-    # Open the ASCII Grid file
-    asc_dataset = gdal.Open(os.path.join(ncdir,input_asc_file))
-    if asc_dataset is None:
-        raise Exception(f"Failed to open input file: {input_asc_file}")
+        # Check if all input files exist
+        missing_files = [f for f in input_files if not os.path.exists(f)]
+        if missing_files:
+            raise FileNotFoundError(f"Missing input files: {missing_files}")
+        
+        mosaic_file = f"gl{length}yr{ri_duration}ha.tif"
+        output_mosaic = os.path.join(ncdir, mosaic_file)
+        print(f"Merging files into: {output_mosaic}")
 
-    # Translate to NetCDF
-    gdal.Translate(
-        os.path.join(ncdir,output_nc_file),             # Output file
-        asc_dataset,                # Input dataset
-        format="netCDF",             # Specify NetCDF format
-        outputSRS="EPSG:4326",
-        creationOptions=[f"BAND_NAMES={varname}"]
-    )
+        # Use gdal.WarpOptions to specify additional parameters
+        warp_options = gdal.WarpOptions(
+            dstSRS="EPSG:4269",             # Reproject to EPSG:4269
+        )
 
-    print(f"Successfully converted {input_asc_file} to {output_nc_file}")
-    asc_dataset=None
+        # Use gdal.Warp to merge the files
+        warp = gdal.Warp(
+            destNameOrDestDS=output_mosaic,  # Output file path
+            srcDSOrSrcDSTab=input_files,       # List of input files
+            options=warp_options               # Warp options
+        )
 
-# creating muiltidimensional datasets
-datasets = []
-for length in ri_lengths:
-    in_file = os.path.join(ncdir,f"gl{length}yr{ri_duration}ha.nc")
-    with xr.open_dataset(in_file) as ds:
-        # Add a new coordinate for the recurrence interval
-        ds = ds.expand_dims({"ARI": [int(length)]})
-        # Rename dimensions
-        updated_ds = ds.rename_dims({"lat": "y", "lon": "x"})
-        # Drop the crs variable
-        cleaned_ds = updated_ds.drop_vars("crs")
-        # Append to the list
-        datasets.append(cleaned_ds)
-# Combine all datasets along the recurrence_interval dimension
-combined_ds = xr.concat(datasets, dim="ARI")
-outfile = os.path.join(ncdir, f"global_ari_{ri_duration}hr.nc")
-# Save the combined dataset to a new .netcdf file (optional)
-combined_ds.to_netcdf(outfile)
+        if warp is None:
+            raise RuntimeError(f"Failed to merge files for {length}-year duration")
 
-print(combined_ds)
+        print(f"Successfully merged files into {output_mosaic}")
+    # now resampling to something more managable
+    for ri_length in ri_lengths:
+        mosaic_file = os.path.join(ncdir, f"gl{ri_length}yr{ri_duration}ha.tif")
+        output_raster = os.path.join(ncdir, f"gl{ri_length}yr{ri_duration}ha_resampled.tif")
+        # Define the target resolution in degrees (for ~2.5 km resolution)
+        target_resolution = 0.0225  # Approximate 2.5 km resolution in degrees
+
+        # Define the spatial reference (EPSG:4326 for Lat/Lon)
+        target_srs = 'EPSG:4326'
+
+        # Perform the resampling using GDAL Warp 
+        gdal.Warp(output_raster, mosaic_file,
+                format='GTiff',  # Output format
+                xRes=target_resolution,  # Resolution in X (Longitude)
+                yRes=target_resolution,  # Resolution in Y (Latitude)
+                dstSRS=target_srs,  # Target Spatial Reference
+                #outputBounds=output_bounds_west,  # Define the bounding box
+                targetAlignedPixels=True,  # Ensure pixel alignment
+                warpOptions=['DATELINEOFFSET=180'])  # Handle dateline properly
+        
+        print("Resampling and reprojection complete!")
+
+            
+    # now converting to netcdf for use with python applications like xesmf
+    for length in ri_lengths:
+        # Input and output file paths
+        varname = f"gl{ri_duration}ha"
+        input_asc_file = f"gl{length}yr{ri_duration}ha_resampled.tif"  # Replace with the path to your .asc file
+        output_nc_file = f"gl{length}yr{ri_duration}ha.nc" # Replace with the desired output NetCDF file name
+        
+        # Open the ASCII Grid file
+        asc_dataset = gdal.Open(os.path.join(ncdir,input_asc_file))
+        if asc_dataset is None:
+            raise Exception(f"Failed to open input file: {input_asc_file}")
+
+        # Translate to NetCDF
+        gdal.Translate(
+            os.path.join(ncdir,output_nc_file),             # Output file
+            asc_dataset,                # Input dataset
+            format="netCDF",             # Specify NetCDF format
+            outputSRS="EPSG:4326",
+            creationOptions=[f"BAND_NAMES={varname}"]
+        )
+
+        print(f"Successfully converted {input_asc_file} to {output_nc_file}")
+        asc_dataset=None
+
+    # creating muiltidimensional datasets
+    datasets = []
+    for length in ri_lengths:
+        in_file = os.path.join(ncdir,f"gl{length}yr{ri_duration}ha.nc")
+        with xr.open_dataset(in_file) as ds:
+            # Add a new coordinate for the recurrence interval
+            ds = ds.expand_dims({"ARI": [int(length)]})
+            # Rename dimensions
+            updated_ds = ds.rename_dims({"lat": "y", "lon": "x"})
+            # Drop the crs variable
+            cleaned_ds = updated_ds.drop_vars("crs")
+            # Append to the list
+            datasets.append(cleaned_ds)
+    # Combine all datasets along the recurrence_interval dimension
+    combined_ds = xr.concat(datasets, dim="ARI")
+    outfile = os.path.join(ncdir, f"global_ari_{ri_duration}hr.nc")
+    # Save the combined dataset to a new .netcdf file (optional)
+    combined_ds.to_netcdf(outfile)
+    print(combined_ds)
+    # Now cleaning up files we don't need
+    clean_up_dirs(ascii_dir)
+    clean_up_dirs(ncdir, ext="tif")
